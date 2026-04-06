@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  Linking,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -11,90 +13,105 @@ import {
   TextInput,
   View
 } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { createRoomRentalClient, resolveApiBaseUrl } from './src/lib/api';
 
 const tabs = [
-  { key: 'discover', label: 'Discover' },
-  { key: 'saved', label: 'Saved' },
-  { key: 'chat', label: 'Chat' },
-  { key: 'alerts', label: 'Alerts' },
-  { key: 'membership', label: 'Membership' },
-  { key: 'profile', label: 'Profile' }
+  { key: 'saved', label: 'Saved Rooms', icon: 'heart-outline' },
+  { key: 'browse', label: 'Browsing Rooms', icon: 'magnify' },
+  { key: 'bookings', label: 'My Bookings', icon: 'wallet-outline' },
+  { key: 'profile', label: 'Profile', icon: 'account-outline' }
 ];
 
+const defaultRegisterForm = {
+  role: 'student',
+  fullName: '',
+  phone: '',
+  email: '',
+  password: '',
+  universityName: '',
+  courseName: '',
+  businessName: ''
+};
+
+const defaultLandlordListingForm = {
+  localityId: '',
+  title: '',
+  addressLine1: '',
+  monthlyRent: '',
+  securityDeposit: '',
+  imageUrl: '',
+  latitude: '',
+  longitude: ''
+};
+
 function currency(value) {
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value || 0));
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0
+  }).format(Number(value || 0));
 }
 
-function Card({ children, style }) {
-  return <View style={[styles.card, style]}>{children}</View>;
+function listingImage(item) {
+  return item?.primaryImageUrl || item?.images?.[0]?.image_url || 'https://picsum.photos/seed/room4rent-mobile/900/600';
 }
 
-function Pill({ text, active }) {
-  return <Text style={[styles.pill, active && styles.pillActive]}>{text}</Text>;
+function AppShell({ children, title, subtitle }) {
+  return (
+    <ScrollView contentContainerStyle={styles.screen}>
+      <Text style={styles.title}>{title}</Text>
+      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      {children}
+    </ScrollView>
+  );
 }
 
 export default function App() {
+  const [authMode, setAuthMode] = useState('login');
   const [session, setSession] = useState(null);
-  const [tab, setTab] = useState('discover');
-  const [loading, setLoading] = useState(true);
-  const [publicData, setPublicData] = useState({ health: null, plans: [], listings: [], error: null });
-  const [roleData, setRoleData] = useState({ loading: false, data: null, error: null });
-  const [connectedData, setConnectedData] = useState({
-    profile: null,
-    savedSearches: [],
-    alerts: [],
-    conversations: [],
-    messages: [],
-    roommateProfile: null,
-    roommateMatches: [],
-    selectedConversation: null
-  });
+  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState('browse');
+
   const [loginForm, setLoginForm] = useState({ identifier: '', password: '' });
-  const [registerForm, setRegisterForm] = useState({
-    role: 'student',
-    fullName: '',
-    phone: '',
-    email: '',
-    password: '',
-    universityName: '',
-    courseName: '',
-    budgetMin: '',
-    budgetMax: '',
-    preferredGender: '',
-    businessName: ''
-  });
-  const [filters, setFilters] = useState({ city: '', search: '', minRent: '', maxRent: '' });
-  const [savedSearchForm, setSavedSearchForm] = useState({ name: 'My search', city: '', search: '', minBudget: '', maxBudget: '' });
-  const [profileForm, setProfileForm] = useState({
-    fullName: '',
-    email: '',
-    studentProfile: { universityName: '', courseName: '', yearOfStudy: '', budgetMin: '', budgetMax: '', preferredGender: '' },
-    landlordProfile: { businessName: '' },
-    roommateProfile: { sleepSchedule: '', foodPreference: '', smokingPreference: '', studyNoisePreference: '', bio: '', isOptedIn: true }
-  });
+  const [registerForm, setRegisterForm] = useState(defaultRegisterForm);
+  const [verificationMessage, setVerificationMessage] = useState('');
+
+  const [searchText, setSearchText] = useState('');
+  const [publicListings, setPublicListings] = useState([]);
+  const [publicLoading, setPublicLoading] = useState(true);
   const [selectedListing, setSelectedListing] = useState(null);
   const [listingInquiryDraft, setListingInquiryDraft] = useState('');
-  const [messageDraft, setMessageDraft] = useState('');
+  const [immersiveLoading, setImmersiveLoading] = useState(false);
 
-  const client = useMemo(() => createRoomRentalClient({ baseUrl: resolveApiBaseUrl(), token: session?.token || null }), [session]);
+  const [savedListings, setSavedListings] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [profile, setProfile] = useState(null);
+  const [conversations, setConversations] = useState([]);
+
+  const [localities, setLocalities] = useState([]);
+  const [landlordListingForm, setLandlordListingForm] = useState(defaultLandlordListingForm);
+  const [locationDetecting, setLocationDetecting] = useState(false);
+
+  const client = useMemo(
+    () => createRoomRentalClient({ baseUrl: resolveApiBaseUrl(), token: session?.token || null }),
+    [session]
+  );
 
   useEffect(() => {
     let active = true;
     (async () => {
+      setPublicLoading(true);
       try {
-        const [health, plans, listings] = await Promise.all([
-          client.fetchHealth(),
-          client.fetchPlans(),
-          client.fetchListings({ status: 'active', limit: 6 })
-        ]);
+        const result = await client.fetchListings({ status: 'active', limit: 16 });
         if (!active) return;
-        setPublicData({ health, plans: plans.items || [], listings: listings.items || [], error: null });
+        setPublicListings(result.items || []);
       } catch (error) {
         if (!active) return;
-        setPublicData((current) => ({ ...current, error: error.message }));
+        Alert.alert('Load failed', error.message || 'Unable to load listings.');
       } finally {
-        if (active) setLoading(false);
+        if (active) setPublicLoading(false);
       }
     })();
 
@@ -105,42 +122,51 @@ export default function App() {
 
   useEffect(() => {
     if (!session?.token) {
-      setRoleData({ loading: false, data: null, error: null });
-      setConnectedData({ profile: null, savedSearches: [], alerts: [], conversations: [], messages: [], roommateProfile: null, roommateMatches: [], selectedConversation: null });
-      return undefined;
+      setSavedListings([]);
+      setBookings([]);
+      setProfile(null);
+      setConversations([]);
+      setLocalities([]);
+      return;
     }
 
     let active = true;
-    setRoleData({ loading: true, data: null, error: null });
 
     (async () => {
       try {
-        let data = null;
+        const tasks = [
+          client.fetchProfile(),
+          client.fetchConversations()
+        ];
+
         if (session.role === 'student') {
-          data = {
-            dashboard: await client.fetchStudentDashboard(),
-            alerts: await client.fetchStudentAlerts({ limit: 5 }),
-            rooms: await client.fetchRoommates({ limit: 5 })
-          };
-        } else if (session.role === 'landlord') {
-          data = {
-            dashboard: await client.fetchLandlordDashboard(),
-            membership: await client.fetchMembership(),
-            conversations: await client.fetchConversations()
-          };
-        } else {
-          data = {
-            overview: await client.fetchAdminOverview(),
-            workers: await client.fetchWorkerHealth(),
-            queues: await client.fetchQueueHealth()
-          };
+          tasks.push(client.fetchSavedListings({ limit: 20 }));
+          tasks.push(client.fetchMyInquiries({ limit: 20 }));
         }
 
+        if (session.role === 'landlord') {
+          tasks.push(client.fetchReceivedInquiries({ limit: 20 }));
+          tasks.push(client.fetchLocalityInsights({ limit: 20 }));
+        }
+
+        const result = await Promise.all(tasks);
         if (!active) return;
-        setRoleData({ loading: false, data, error: null });
+
+        setProfile(result[0]);
+        setConversations(result[1]?.items || []);
+
+        if (session.role === 'student') {
+          setSavedListings(result[2]?.items || []);
+          setBookings(result[3]?.items || []);
+        }
+
+        if (session.role === 'landlord') {
+          setBookings(result[2]?.items || []);
+          setLocalities(result[3]?.items || []);
+        }
       } catch (error) {
         if (!active) return;
-        setRoleData({ loading: false, data: null, error: error.message });
+        Alert.alert('Sync failed', error.message || 'Unable to sync account data.');
       }
     })();
 
@@ -149,476 +175,585 @@ export default function App() {
     };
   }, [client, session]);
 
-  useEffect(() => {
-    if (!session?.token) {
-      return undefined;
+  async function handleLogin() {
+    if (!loginForm.identifier.trim() || !loginForm.password.trim()) {
+      Alert.alert('Missing fields', 'Please enter email/phone and password.');
+      return;
     }
 
-    let active = true;
-
-    (async () => {
-      try {
-        const results = await Promise.all([
-          client.fetchProfile(),
-          session.role === 'student' ? client.fetchSavedSearches() : Promise.resolve({ items: [] }),
-          session.role === 'student' ? client.fetchStudentAlerts({ limit: 10 }) : Promise.resolve({ items: [] }),
-          session.role === 'student' ? client.fetchRoommateProfile() : Promise.resolve({ profile: null }),
-          session.role === 'student' ? client.fetchRoommates({ limit: 8 }) : Promise.resolve({ items: [] }),
-          session.role === 'student' || session.role === 'landlord' ? client.fetchConversations() : Promise.resolve({ items: [] })
-        ]);
-
-        if (!active) return;
-
-        const [profile, savedSearches, alerts, roommateProfile, roommateMatches, conversations] = results;
-        setConnectedData({
-          profile,
-          savedSearches: savedSearches.items || [],
-          alerts: alerts.items || [],
-          conversations: conversations.items || [],
-          messages: [],
-          roommateProfile: roommateProfile.profile || null,
-          roommateMatches: roommateMatches.items || [],
-          selectedConversation: null
-        });
-
-        setProfileForm({
-          fullName: profile.fullName || '',
-          email: profile.email || '',
-          studentProfile: {
-            universityName: profile.roleProfile?.university_name || '',
-            courseName: profile.roleProfile?.course_name || '',
-            yearOfStudy: profile.roleProfile?.year_of_study || '',
-            budgetMin: profile.roleProfile?.budget_min || '',
-            budgetMax: profile.roleProfile?.budget_max || '',
-            preferredGender: profile.roleProfile?.preferred_gender || ''
-          },
-          landlordProfile: { businessName: profile.roleProfile?.business_name || '' },
-          roommateProfile: {
-            sleepSchedule: roommateProfile.profile?.sleep_schedule || '',
-            foodPreference: roommateProfile.profile?.food_preference || '',
-            smokingPreference: roommateProfile.profile?.smoking_preference || '',
-            studyNoisePreference: roommateProfile.profile?.study_noise_preference || '',
-            bio: roommateProfile.profile?.bio || '',
-            isOptedIn: roommateProfile.profile?.is_opted_in ?? true
-          }
-        });
-      } catch (error) {
-        if (!active) return;
-        Alert.alert('Sync failed', error.message);
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [client, session]);
-
-  async function refreshListings() {
+    setLoading(true);
     try {
-      const listings = await client.fetchStudentListings({
-        city: filters.city,
-        search: filters.search,
-        minBudget: filters.minRent,
-        maxBudget: filters.maxRent,
-        limit: 6
-      });
-      setPublicData((current) => ({ ...current, listings: listings.items || [] }));
+      const result = await client.login(loginForm.identifier.trim(), loginForm.password);
+      setSession({ token: result.accessToken, role: result.user.role, user: result.user });
+      setVerificationMessage('');
+      setAuthMode('login');
     } catch (error) {
-      Alert.alert('Search failed', error.message);
+      if (error?.payload?.code === 'EMAIL_NOT_VERIFIED') {
+        const text = error?.payload?.message || 'Please verify your email before login.';
+        setVerificationMessage(text);
+        Alert.alert('Email verification required', text);
+      } else {
+        Alert.alert('Login failed', error.message || 'Invalid credentials.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRegister() {
+    if (!registerForm.fullName.trim() || !registerForm.phone.trim() || !registerForm.email.trim() || !registerForm.password.trim()) {
+      Alert.alert('Missing fields', 'Name, phone, email and password are required.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const payload = {
+        role: registerForm.role,
+        fullName: registerForm.fullName.trim(),
+        phone: registerForm.phone.trim(),
+        email: registerForm.email.trim(),
+        password: registerForm.password,
+        profile: registerForm.role === 'student'
+          ? {
+              universityName: registerForm.universityName || undefined,
+              courseName: registerForm.courseName || undefined
+            }
+          : {
+              businessName: registerForm.businessName || undefined
+            }
+      };
+
+      const result = await client.register(payload);
+
+      if (result.requiresEmailVerification) {
+        const msg = result.message || 'Verification email sent. Please verify and then login.';
+        setVerificationMessage(msg);
+        setAuthMode('login');
+        setLoginForm((current) => ({ ...current, identifier: registerForm.email.trim() }));
+        Alert.alert('Verification sent', msg);
+        return;
+      }
+
+      if (result.accessToken) {
+        setSession({ token: result.accessToken, role: result.user.role, user: result.user });
+        return;
+      }
+
+      Alert.alert('Signup completed', 'Now verify email and login.');
+      setAuthMode('login');
+    } catch (error) {
+      Alert.alert('Signup failed', error.message || 'Unable to create account.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResendVerification() {
+    const identifier = (loginForm.identifier || registerForm.email).trim();
+    if (!identifier) {
+      Alert.alert('Identifier required', 'Enter your registered email or phone first.');
+      return;
+    }
+
+    try {
+      const result = await client.resendVerification(identifier);
+      Alert.alert('Verification resent', result.message || 'Please check your email.');
+    } catch (error) {
+      Alert.alert('Resend failed', error.message || 'Unable to resend verification.');
     }
   }
 
   async function openListing(listing) {
+    setSelectedListing(listing);
+    setImmersiveLoading(true);
+
     try {
       const immersive = await client.fetchImmersive(listing.id);
-      setSelectedListing({ ...listing, immersiveAsset: immersive.item || immersive });
+      setSelectedListing((current) => ({ ...current, immersiveAsset: immersive?.item || immersive || null }));
     } catch {
-      setSelectedListing(listing);
+      // Ignore immersive failures and show listing detail without 3D link.
+    } finally {
+      setImmersiveLoading(false);
     }
   }
 
-  async function saveSelectedListing() {
-    if (!selectedListing) return;
+  async function handleSaveListing(listingId) {
+    if (!session?.token || session.role !== 'student') {
+      Alert.alert('Student login required', 'Login as student to save rooms.');
+      return;
+    }
+
     try {
-      await client.saveListing(selectedListing.id);
-      Alert.alert('Saved', `${selectedListing.title} was added to your shortlist.`);
+      await client.saveListing(listingId);
+      Alert.alert('Saved', 'Room added to your saved list.');
+      const refreshed = await client.fetchSavedListings({ limit: 20 });
+      setSavedListings(refreshed.items || []);
     } catch (error) {
-      Alert.alert('Save failed', error.message);
+      Alert.alert('Save failed', error.message || 'Unable to save room.');
     }
   }
 
-  async function sendListingInquiry() {
+  async function handleBookingRequest() {
     if (!selectedListing) return;
-    const body = listingInquiryDraft.trim();
-    if (!body) {
-      Alert.alert('Write a message first', 'Add a short inquiry before sending.');
+
+    if (!session?.token) {
+      Alert.alert('Login required', 'Please login before booking.');
       return;
     }
 
-    if (!selectedListing.landlord?.id) {
-      Alert.alert('Missing landlord', 'This listing does not include a landlord contact yet.');
+    const message = listingInquiryDraft.trim();
+    if (!message) {
+      Alert.alert('Write message', 'Please add booking message before submit.');
       return;
     }
 
     try {
-      await client.createInquiry(selectedListing.id, { message: body });
-      await client.createConversation({
-        participantUserId: selectedListing.landlord?.id,
-        listingId: selectedListing.id,
-        initialMessage: body
-      });
+      await client.createInquiry(selectedListing.id, { message });
+      if (selectedListing.landlord?.id) {
+        await client.createConversation({
+          participantUserId: selectedListing.landlord.id,
+          listingId: selectedListing.id,
+          initialMessage: message
+        });
+      }
+
+      Alert.alert('Booking requested', 'Owner has received your booking request.');
       setListingInquiryDraft('');
-      Alert.alert('Sent', 'Inquiry and chat request sent.');
+
+      if (session.role === 'student') {
+        const refreshed = await client.fetchMyInquiries({ limit: 20 });
+        setBookings(refreshed.items || []);
+      }
     } catch (error) {
-      Alert.alert('Inquiry failed', error.message);
+      Alert.alert('Booking failed', error.message || 'Unable to submit booking request.');
     }
   }
 
-  async function saveSearch() {
-    try {
-      await client.createSavedSearch({
-        name: savedSearchForm.name,
-        filters: {
-          city: savedSearchForm.city || undefined,
-          search: savedSearchForm.search || undefined,
-          minBudget: savedSearchForm.minBudget ? Number(savedSearchForm.minBudget) : undefined,
-          maxBudget: savedSearchForm.maxBudget ? Number(savedSearchForm.maxBudget) : undefined
-        },
-        isActive: true
-      });
-      const searches = await client.fetchSavedSearches();
-      setConnectedData((current) => ({ ...current, savedSearches: searches.items || [] }));
-      Alert.alert('Saved', 'Search saved successfully.');
-    } catch (error) {
-      Alert.alert('Save search failed', error.message);
+  async function publishLandlordListing() {
+    if (session?.role !== 'landlord') {
+      Alert.alert('Landlord only', 'Only landlord accounts can publish listing.');
+      return;
     }
-  }
 
-  async function selectConversation(conversation) {
-    try {
-      const [conversationResult, messagesResult] = await Promise.all([
-        client.fetchConversation(conversation.id),
-        client.fetchMessages(conversation.id, { limit: 30 })
-      ]);
-      setConnectedData((current) => ({
-        ...current,
-        selectedConversation: conversationResult.conversation || conversation,
-        messages: messagesResult.items || []
-      }));
-    } catch (error) {
-      Alert.alert('Chat failed', error.message);
-    }
-  }
-
-  async function sendMessage() {
-    if (!connectedData.selectedConversation) return;
-    const body = messageDraft.trim();
-    if (!body) {
-      Alert.alert('Write a message first', 'Type a message before sending.');
+    if (!landlordListingForm.localityId || !landlordListingForm.title || !landlordListingForm.addressLine1 || !landlordListingForm.monthlyRent) {
+      Alert.alert('Missing fields', 'Select locality and fill title, address, monthly rent.');
       return;
     }
 
     try {
-      await client.sendMessage(connectedData.selectedConversation.id, { body, messageType: 'text' });
-      setMessageDraft('');
-      await selectConversation(connectedData.selectedConversation);
-    } catch (error) {
-      Alert.alert('Send failed', error.message);
-    }
-  }
-
-  async function updateProfile() {
-    try {
-      const payload = {
-        fullName: profileForm.fullName || undefined,
-        email: profileForm.email || null,
-        studentProfile: session?.role === 'student' ? {
-          universityName: profileForm.studentProfile.universityName || null,
-          courseName: profileForm.studentProfile.courseName || null,
-          yearOfStudy: profileForm.studentProfile.yearOfStudy ? Number(profileForm.studentProfile.yearOfStudy) : null,
-          budgetMin: profileForm.studentProfile.budgetMin ? Number(profileForm.studentProfile.budgetMin) : null,
-          budgetMax: profileForm.studentProfile.budgetMax ? Number(profileForm.studentProfile.budgetMax) : null,
-          preferredGender: profileForm.studentProfile.preferredGender || null
-        } : undefined,
-        landlordProfile: session?.role === 'landlord' ? { businessName: profileForm.landlordProfile.businessName || null } : undefined
-      };
-
-      const updated = await client.updateProfile(payload);
-      setConnectedData((current) => ({ ...current, profile: updated }));
-      Alert.alert('Saved', 'Profile updated successfully.');
-    } catch (error) {
-      Alert.alert('Profile update failed', error.message);
-    }
-  }
-
-  async function updateRoommateProfile() {
-    if (session?.role !== 'student') return;
-
-    try {
-      const updated = await client.updateRoommateProfile({
-        sleepSchedule: profileForm.roommateProfile.sleepSchedule || null,
-        foodPreference: profileForm.roommateProfile.foodPreference || null,
-        smokingPreference: profileForm.roommateProfile.smokingPreference || null,
-        studyNoisePreference: profileForm.roommateProfile.studyNoisePreference || null,
-        bio: profileForm.roommateProfile.bio || null,
-        isOptedIn: Boolean(profileForm.roommateProfile.isOptedIn)
+      const created = await client.createListing({
+        localityId: landlordListingForm.localityId,
+        title: landlordListingForm.title,
+        addressLine1: landlordListingForm.addressLine1,
+        monthlyRent: Number(landlordListingForm.monthlyRent),
+        securityDeposit: landlordListingForm.securityDeposit ? Number(landlordListingForm.securityDeposit) : 0,
+        latitude: landlordListingForm.latitude ? Number(landlordListingForm.latitude) : undefined,
+        longitude: landlordListingForm.longitude ? Number(landlordListingForm.longitude) : undefined,
+        status: 'active'
       });
-      setConnectedData((current) => ({ ...current, roommateProfile: updated }));
-      Alert.alert('Saved', 'Roommate profile updated.');
+
+      if (landlordListingForm.imageUrl.trim()) {
+        await client.addListingImage(created.listing.id, {
+          imageUrl: landlordListingForm.imageUrl.trim(),
+          isPrimary: true,
+          sortOrder: 0
+        });
+      }
+
+      setLandlordListingForm(defaultLandlordListingForm);
+      Alert.alert('Published', 'Your listing is published successfully.');
     } catch (error) {
-      Alert.alert('Roommate profile failed', error.message);
+      Alert.alert('Publish failed', error.message || 'Could not publish listing.');
     }
   }
 
-  async function login() {
+  async function detectCurrentLocation() {
     try {
-      const response = await client.login(loginForm.identifier, loginForm.password);
-      const nextSession = { token: response.accessToken, role: response.user.role, user: response.user };
-      setSession(nextSession);
+      setLocationDetecting(true);
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Permission denied', 'Location permission is required to auto-fill property location.');
+        return;
+      }
+
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const latitude = position.coords.latitude;
+      const longitude = position.coords.longitude;
+
+      let addressText = '';
+      try {
+        const geocoded = await Location.reverseGeocodeAsync({ latitude, longitude });
+        if (geocoded?.length) {
+          const place = geocoded[0];
+          addressText = [place.name, place.street, place.city].filter(Boolean).join(', ');
+        }
+      } catch {
+        addressText = '';
+      }
+
+      setLandlordListingForm((current) => ({
+        ...current,
+        latitude: latitude.toFixed(6),
+        longitude: longitude.toFixed(6),
+        addressLine1: current.addressLine1 || addressText
+      }));
+      Alert.alert('Location detected', 'Coordinates have been filled automatically.');
     } catch (error) {
-      Alert.alert('Login failed', error.message);
+      Alert.alert('Location failed', error.message || 'Unable to detect current location.');
+    } finally {
+      setLocationDetecting(false);
     }
   }
 
-  async function register() {
-    try {
-      const payload = {
-        role: registerForm.role,
-        fullName: registerForm.fullName,
-        phone: registerForm.phone,
-        email: registerForm.email || undefined,
-        password: registerForm.password,
-        profile: registerForm.role === 'landlord'
-          ? { businessName: registerForm.businessName }
-          : {
-              universityName: registerForm.universityName || undefined,
-              courseName: registerForm.courseName || undefined,
-              budgetMin: registerForm.budgetMin ? Number(registerForm.budgetMin) : undefined,
-              budgetMax: registerForm.budgetMax ? Number(registerForm.budgetMax) : undefined,
-              preferredGender: registerForm.preferredGender || undefined
-            }
-      };
-      const response = await client.register(payload);
-      setSession({ token: response.accessToken, role: response.user.role, user: response.user });
-    } catch (error) {
-      Alert.alert('Registration failed', error.message);
+  const filteredListings = useMemo(() => {
+    const phrase = searchText.trim().toLowerCase();
+    if (!phrase) return publicListings;
+
+    return publicListings.filter((item) => {
+      const text = `${item.title || ''} ${item.description || ''} ${item.locality?.city || ''} ${item.locality?.localityName || ''}`.toLowerCase();
+      return text.includes(phrase);
+    });
+  }, [publicListings, searchText]);
+
+  function renderAuth() {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <AppShell title="Room4Rent" subtitle="Student ?? Employee ?? ??? ???? room booking ??">
+          <View style={styles.authSwitchRow}>
+            <Pressable style={[styles.authSwitch, authMode === 'login' && styles.authSwitchActive]} onPress={() => setAuthMode('login')}>
+              <Text style={[styles.authSwitchText, authMode === 'login' && styles.authSwitchTextActive]}>Log In</Text>
+            </Pressable>
+            <Pressable style={[styles.authSwitch, authMode === 'register' && styles.authSwitchActive]} onPress={() => setAuthMode('register')}>
+              <Text style={[styles.authSwitchText, authMode === 'register' && styles.authSwitchTextActive]}>Sign Up</Text>
+            </Pressable>
+          </View>
+
+          {verificationMessage ? <Text style={styles.verificationBanner}>{verificationMessage}</Text> : null}
+
+          {authMode === 'login' ? (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Welcome back</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Email or phone"
+                value={loginForm.identifier}
+                onChangeText={(value) => setLoginForm((current) => ({ ...current, identifier: value }))}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Password"
+                secureTextEntry
+                value={loginForm.password}
+                onChangeText={(value) => setLoginForm((current) => ({ ...current, password: value }))}
+              />
+              <Pressable style={styles.primaryBtn} onPress={handleLogin} disabled={loading}>
+                {loading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.primaryBtnText}>Log In</Text>}
+              </Pressable>
+              <Pressable style={styles.secondaryBtn} onPress={handleResendVerification}>
+                <Text style={styles.secondaryBtnText}>Resend verification email</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Create account</Text>
+
+              <View style={styles.roleRow}>
+                <Pressable
+                  style={[styles.roleChip, registerForm.role === 'student' && styles.roleChipActive]}
+                  onPress={() => setRegisterForm((current) => ({ ...current, role: 'student' }))}
+                >
+                  <Text style={[styles.roleChipText, registerForm.role === 'student' && styles.roleChipTextActive]}>Student</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.roleChip, registerForm.role === 'landlord' && styles.roleChipActive]}
+                  onPress={() => setRegisterForm((current) => ({ ...current, role: 'landlord' }))}
+                >
+                  <Text style={[styles.roleChipText, registerForm.role === 'landlord' && styles.roleChipTextActive]}>Landowner</Text>
+                </Pressable>
+              </View>
+
+              <TextInput style={styles.input} placeholder="Full name" value={registerForm.fullName} onChangeText={(value) => setRegisterForm((current) => ({ ...current, fullName: value }))} />
+              <TextInput style={styles.input} placeholder="Phone" value={registerForm.phone} onChangeText={(value) => setRegisterForm((current) => ({ ...current, phone: value }))} keyboardType="phone-pad" />
+              <TextInput style={styles.input} placeholder="Email" value={registerForm.email} onChangeText={(value) => setRegisterForm((current) => ({ ...current, email: value }))} keyboardType="email-address" autoCapitalize="none" />
+              <TextInput style={styles.input} placeholder="Password" secureTextEntry value={registerForm.password} onChangeText={(value) => setRegisterForm((current) => ({ ...current, password: value }))} />
+
+              {registerForm.role === 'student' ? (
+                <>
+                  <TextInput style={styles.input} placeholder="University / Company" value={registerForm.universityName} onChangeText={(value) => setRegisterForm((current) => ({ ...current, universityName: value }))} />
+                  <TextInput style={styles.input} placeholder="Course / Department" value={registerForm.courseName} onChangeText={(value) => setRegisterForm((current) => ({ ...current, courseName: value }))} />
+                </>
+              ) : (
+                <TextInput style={styles.input} placeholder="Business name" value={registerForm.businessName} onChangeText={(value) => setRegisterForm((current) => ({ ...current, businessName: value }))} />
+              )}
+
+              <Pressable style={styles.primaryBtn} onPress={handleRegister} disabled={loading}>
+                {loading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.primaryBtnText}>Sign Up</Text>}
+              </Pressable>
+            </View>
+          )}
+        </AppShell>
+      </SafeAreaView>
+    );
+  }
+
+  function renderBrowse() {
+    if (selectedListing) {
+      return (
+        <ScrollView contentContainerStyle={styles.screen}>
+          <Pressable style={styles.backBtn} onPress={() => setSelectedListing(null)}>
+            <Text style={styles.backBtnText}>? Back to listings</Text>
+          </Pressable>
+
+          <View style={styles.detailHeroCard}>
+            <Image source={{ uri: listingImage(selectedListing) }} style={styles.detailHeroImage} />
+          </View>
+
+          <Text style={styles.detailTitle}>{selectedListing.title}</Text>
+          <Text style={styles.detailAddress}>{selectedListing.addressLine1 || '-'}, {selectedListing.locality?.city || '-'}</Text>
+
+          <View style={styles.detailStatsRow}>
+            <View style={styles.detailStat}><Text style={styles.detailStatLabel}>Rent</Text><Text style={styles.detailStatValue}>{currency(selectedListing.monthlyRent)}</Text></View>
+            <View style={styles.detailStat}><Text style={styles.detailStatLabel}>Deposit</Text><Text style={styles.detailStatValue}>{currency(selectedListing.securityDeposit || 0)}</Text></View>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Owner & Booking</Text>
+            <Text style={styles.detailOwnerName}>{selectedListing.landlord?.fullName || 'Owner'}</Text>
+            <Text style={styles.detailOwnerLine}>Phone: {selectedListing.landlord?.phone || 'Will be shared after inquiry'}</Text>
+            <Text style={styles.detailOwnerLine}>Email: {selectedListing.landlord?.email || 'Not available'}</Text>
+
+            <TextInput
+              style={[styles.input, styles.detailMessageInput]}
+              placeholder="Move-in date, budget, and your message"
+              value={listingInquiryDraft}
+              onChangeText={setListingInquiryDraft}
+              multiline
+            />
+
+            <Pressable style={styles.primaryBtn} onPress={handleBookingRequest}>
+              <Text style={styles.primaryBtnText}>Request Booking</Text>
+            </Pressable>
+
+            <Pressable style={styles.secondaryBtn} onPress={() => handleSaveListing(selectedListing.id)}>
+              <Text style={styles.secondaryBtnText}>Save Room</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Room Details</Text>
+            <Text style={styles.detailParagraph}>{selectedListing.description || 'Safe and comfortable accommodation with essential amenities.'}</Text>
+            <Text style={styles.detailOwnerLine}>Location: {selectedListing.locality?.localityName || '-'}, {selectedListing.locality?.city || '-'}</Text>
+            <Text style={styles.detailOwnerLine}>Type: {selectedListing.roomType || 'PG'} | Furnishing: {selectedListing.furnishingType || 'Furnished'}</Text>
+
+            <Pressable
+              style={styles.secondaryBtn}
+              onPress={() => {
+                const url = selectedListing?.immersiveAsset?.assetUrl;
+                if (!url) {
+                  Alert.alert('3D view', immersiveLoading ? 'Loading 3D view...' : '3D view link is not available for this listing yet.');
+                  return;
+                }
+                Linking.openURL(url).catch(() => Alert.alert('Open failed', 'Unable to open 3D link.'));
+              }}
+            >
+              <Text style={styles.secondaryBtnText}>Open 3D View</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.featureGrid}>
+            <View style={styles.featureCard}><Text style={styles.featureTitle}>Chat</Text><Text style={styles.featureBody}>Direct landlord chat available</Text></View>
+            <View style={styles.featureCard}><Text style={styles.featureTitle}>Online Payment</Text><Text style={styles.featureBody}>Pay rent securely in app</Text></View>
+            <View style={styles.featureCard}><Text style={styles.featureTitle}>Digital Agreement</Text><Text style={styles.featureBody}>Rent agreement workflow</Text></View>
+            <View style={styles.featureCard}><Text style={styles.featureTitle}>Reviews</Text><Text style={styles.featureBody}>Ratings and feedback support</Text></View>
+          </View>
+        </ScrollView>
+      );
     }
+
+    return (
+      <ScrollView contentContainerStyle={styles.screen}>
+        <Text style={styles.title}>Browse Rooms</Text>
+
+        <TextInput
+          style={[styles.input, styles.searchInput]}
+          placeholder="Search city, area, room type"
+          value={searchText}
+          onChangeText={setSearchText}
+        />
+
+        <View style={styles.offerBanner}>
+          <Text style={styles.offerTitle}>First Booking 50% Off!</Text>
+          <Text style={styles.offerSub}>Limited time offer for students and employees.</Text>
+          <Pressable style={styles.offerBtn} onPress={() => Alert.alert('Offer applied', 'Choose your room now and send a booking request.') }>
+            <Text style={styles.offerBtnText}>Book Now</Text>
+          </Pressable>
+        </View>
+
+        {publicLoading ? <ActivityIndicator size="large" color="#3f37c9" style={styles.loader} /> : null}
+
+        {filteredListings.map((item) => (
+          <Pressable key={item.id} style={styles.listingCard} onPress={() => openListing(item)}>
+            <Image source={{ uri: listingImage(item) }} style={styles.listingImage} />
+            <View style={styles.listingBody}>
+              <Text style={styles.listingTitle} numberOfLines={1}>{item.title}</Text>
+              <Text style={styles.listingMeta}>{item.locality?.localityName || '-'}, {item.locality?.city || '-'}</Text>
+              <Text style={styles.listingRent}>{currency(item.monthlyRent)} / month</Text>
+              <Text style={styles.listing3d}>Tap for details + 3D view</Text>
+            </View>
+          </Pressable>
+        ))}
+      </ScrollView>
+    );
   }
 
-  function logout() {
-    setSession(null);
-    setRoleData({ loading: false, data: null, error: null });
+  function renderSaved() {
+    if (!session?.token) {
+      return <AppShell title="Saved Rooms" subtitle="Login to save your favourite rooms." />;
+    }
+
+    return (
+      <AppShell title="Saved Rooms" subtitle="Your bookmarked shortlist">
+        {savedListings.length === 0 ? <Text style={styles.emptyText}>No saved rooms yet.</Text> : null}
+        {savedListings.map((entry) => (
+          <View key={entry.id} style={styles.card}>
+            <Text style={styles.sectionTitle}>{entry.listingTitle || entry.title || 'Saved Room'}</Text>
+            <Text style={styles.detailOwnerLine}>Status: {entry.status || 'saved'}</Text>
+          </View>
+        ))}
+      </AppShell>
+    );
   }
 
-  const activeTab = tabs.find((item) => item.key === tab) || tabs[0];
+  function renderBookings() {
+    if (!session?.token) {
+      return <AppShell title="My Bookings" subtitle="Login to track booking requests." />;
+    }
+
+    return (
+      <AppShell
+        title="My Bookings"
+        subtitle={session.role === 'student' ? 'Track booking requests and payment flow' : 'Manage incoming booking requests'}
+      >
+        {bookings.length === 0 ? <Text style={styles.emptyText}>No booking records yet.</Text> : null}
+
+        {bookings.map((entry) => (
+          <View key={entry.id} style={styles.card}>
+            <Text style={styles.sectionTitle}>{entry.listing?.title || 'Room booking'}</Text>
+            <Text style={styles.detailOwnerLine}>Status: {entry.status || 'pending'}</Text>
+            <Text style={styles.detailOwnerLine}>Message: {entry.message || 'No message'}</Text>
+            <View style={styles.rowGap}>
+              <Pressable style={styles.secondaryBtn} onPress={() => Alert.alert('Chat', 'Chat module is available from profile and room details flow.')}> 
+                <Text style={styles.secondaryBtnText}>Chat</Text>
+              </Pressable>
+              <Pressable style={styles.secondaryBtn} onPress={() => Alert.alert('Payment', 'Online payment integration is enabled in membership and booking flow.')}> 
+                <Text style={styles.secondaryBtnText}>Pay Online</Text>
+              </Pressable>
+              <Pressable style={styles.secondaryBtn} onPress={() => Alert.alert('Agreement', 'Digital rent agreement workflow can be completed post booking approval.')}> 
+                <Text style={styles.secondaryBtnText}>Agreement</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+      </AppShell>
+    );
+  }
+
+  function renderProfile() {
+    if (!session?.token) {
+      return <AppShell title="Profile" subtitle="Login to view profile." />;
+    }
+
+    return (
+      <AppShell title="Profile" subtitle={`Logged in as ${session.role}`}>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>{profile?.fullName || session.user?.fullName || 'User'}</Text>
+          <Text style={styles.detailOwnerLine}>Email: {profile?.email || session.user?.email || '-'}</Text>
+          <Text style={styles.detailOwnerLine}>Phone: {profile?.phone || session.user?.phone || '-'}</Text>
+          <Text style={styles.detailOwnerLine}>Conversations: {conversations.length}</Text>
+        </View>
+
+        <View style={styles.featureGrid}>
+          <View style={styles.featureCard}><Text style={styles.featureTitle}>Chat</Text><Text style={styles.featureBody}>Direct student-landlord messages</Text></View>
+          <View style={styles.featureCard}><Text style={styles.featureTitle}>Payments</Text><Text style={styles.featureBody}>Online rent and receipts</Text></View>
+          <View style={styles.featureCard}><Text style={styles.featureTitle}>Agreement</Text><Text style={styles.featureBody}>Digital rent agreement flow</Text></View>
+          <View style={styles.featureCard}><Text style={styles.featureTitle}>Reviews</Text><Text style={styles.featureBody}>Rate your stay and owners</Text></View>
+        </View>
+
+        {session.role === 'landlord' ? (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Publish Listing</Text>
+
+            <Text style={styles.detailOwnerLine}>Select locality</Text>
+            <View style={styles.localityWrap}>
+              {localities.slice(0, 8).map((loc) => (
+                <Pressable
+                  key={loc.id}
+                  style={[styles.localityChip, landlordListingForm.localityId === loc.id && styles.localityChipActive]}
+                  onPress={() => setLandlordListingForm((current) => ({ ...current, localityId: loc.id }))}
+                >
+                  <Text style={[styles.localityChipText, landlordListingForm.localityId === loc.id && styles.localityChipTextActive]}>{loc.localityName}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <TextInput style={styles.input} placeholder="Listing title" value={landlordListingForm.title} onChangeText={(value) => setLandlordListingForm((current) => ({ ...current, title: value }))} />
+            <TextInput style={styles.input} placeholder="Address" value={landlordListingForm.addressLine1} onChangeText={(value) => setLandlordListingForm((current) => ({ ...current, addressLine1: value }))} />
+            <Pressable style={styles.secondaryBtn} onPress={detectCurrentLocation} disabled={locationDetecting}>
+              <Text style={styles.secondaryBtnText}>{locationDetecting ? 'Detecting location...' : 'Auto Detect Location'}</Text>
+            </Pressable>
+            <View style={styles.rowGap}>
+              <TextInput style={[styles.input, styles.halfInput]} placeholder="Latitude" value={landlordListingForm.latitude} onChangeText={(value) => setLandlordListingForm((current) => ({ ...current, latitude: value }))} />
+              <TextInput style={[styles.input, styles.halfInput]} placeholder="Longitude" value={landlordListingForm.longitude} onChangeText={(value) => setLandlordListingForm((current) => ({ ...current, longitude: value }))} />
+            </View>
+            <TextInput style={styles.input} placeholder="Monthly rent" keyboardType="numeric" value={landlordListingForm.monthlyRent} onChangeText={(value) => setLandlordListingForm((current) => ({ ...current, monthlyRent: value }))} />
+            <TextInput style={styles.input} placeholder="Security deposit" keyboardType="numeric" value={landlordListingForm.securityDeposit} onChangeText={(value) => setLandlordListingForm((current) => ({ ...current, securityDeposit: value }))} />
+            <TextInput style={styles.input} placeholder="Primary image URL" value={landlordListingForm.imageUrl} onChangeText={(value) => setLandlordListingForm((current) => ({ ...current, imageUrl: value }))} />
+
+            <Pressable style={styles.primaryBtn} onPress={publishLandlordListing}>
+              <Text style={styles.primaryBtnText}>Publish Property</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <Pressable
+          style={[styles.secondaryBtn, styles.logoutBtn]}
+          onPress={() => {
+            setSession(null);
+            setTab('browse');
+            setSelectedListing(null);
+          }}
+        >
+          <Text style={styles.secondaryBtnText}>Log out</Text>
+        </Pressable>
+      </AppShell>
+    );
+  }
+
+  function renderActiveTab() {
+    if (tab === 'saved') return renderSaved();
+    if (tab === 'bookings') return renderBookings();
+    if (tab === 'profile') return renderProfile();
+    return renderBrowse();
+  }
+
+  if (!session) {
+    return renderAuth();
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" />
-      <View style={styles.backgroundOrbA} />
-      <View style={styles.backgroundOrbB} />
-      <ScrollView contentContainerStyle={styles.container}>
-        <Card style={styles.heroCard}>
-          <Text style={styles.brand}>RoomRental</Text>
-          <Text style={styles.heroTitle}>Verified room discovery for Indian students</Text>
-          <Text style={styles.heroCopy}>
-            Premium yet practical mobile journeys for Tier 2 and Tier 3 cities, backed by the same backend used by the web app.
-          </Text>
-          <View style={styles.pillRow}>
-            <Pill text="Verified" active />
-            <Pill text="Chat" />
-            <Pill text="Immersive" />
-            <Pill text="Secure" />
-          </View>
-          <View style={styles.healthRow}>
-            <View style={styles.healthBox}><Text style={styles.healthValue}>{publicData.health?.status || 'checking'}</Text><Text style={styles.healthLabel}>API health</Text></View>
-            <View style={styles.healthBox}><Text style={styles.healthValue}>{publicData.listings.length}</Text><Text style={styles.healthLabel}>Listings</Text></View>
-            <View style={styles.healthBox}><Text style={styles.healthValue}>{publicData.plans.length}</Text><Text style={styles.healthLabel}>Plans</Text></View>
-          </View>
-        </Card>
-
-        <Card>
-          <Text style={styles.sectionTitle}>Access the platform</Text>
-          <TextInput style={styles.input} placeholder="Phone or email" placeholderTextColor="#74839b" value={loginForm.identifier} onChangeText={(value) => setLoginForm({ ...loginForm, identifier: value })} />
-          <TextInput style={styles.input} placeholder="Password" placeholderTextColor="#74839b" secureTextEntry value={loginForm.password} onChangeText={(value) => setLoginForm({ ...loginForm, password: value })} />
-          <Pressable style={styles.primaryButton} onPress={login}><Text style={styles.primaryButtonText}>Login</Text></Pressable>
-          <View style={styles.divider} />
-          <Text style={styles.sectionTitle}>Create account</Text>
-          <TextInput style={styles.input} placeholder="Role (student / landlord)" placeholderTextColor="#74839b" value={registerForm.role} onChangeText={(value) => setRegisterForm({ ...registerForm, role: value })} />
-          <TextInput style={styles.input} placeholder="Full name" placeholderTextColor="#74839b" value={registerForm.fullName} onChangeText={(value) => setRegisterForm({ ...registerForm, fullName: value })} />
-          <TextInput style={styles.input} placeholder="Phone" placeholderTextColor="#74839b" value={registerForm.phone} onChangeText={(value) => setRegisterForm({ ...registerForm, phone: value })} />
-          <TextInput style={styles.input} placeholder="Email" placeholderTextColor="#74839b" value={registerForm.email} onChangeText={(value) => setRegisterForm({ ...registerForm, email: value })} />
-          <TextInput style={styles.input} placeholder="Password" placeholderTextColor="#74839b" secureTextEntry value={registerForm.password} onChangeText={(value) => setRegisterForm({ ...registerForm, password: value })} />
-          <Pressable style={styles.secondaryButton} onPress={register}><Text style={styles.secondaryButtonText}>Register</Text></Pressable>
-        </Card>
-
-        <View style={styles.tabRow}>
-          {tabs.map((item) => (
-            <Pressable key={item.key} style={[styles.tab, activeTab.key === item.key && styles.tabActive]} onPress={() => setTab(item.key)}>
-              <Text style={[styles.tabText, activeTab.key === item.key && styles.tabTextActive]}>{item.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {tab === 'discover' && (
-          <Card>
-            <Text style={styles.sectionTitle}>Discover rooms</Text>
-            <TextInput style={styles.input} placeholder="City" placeholderTextColor="#74839b" value={filters.city} onChangeText={(value) => setFilters({ ...filters, city: value })} />
-            <TextInput style={styles.input} placeholder="Search" placeholderTextColor="#74839b" value={filters.search} onChangeText={(value) => setFilters({ ...filters, search: value })} />
-            <View style={styles.rowInputs}>
-              <TextInput style={[styles.input, styles.flexInput]} placeholder="Min rent" placeholderTextColor="#74839b" value={filters.minRent} onChangeText={(value) => setFilters({ ...filters, minRent: value })} />
-              <TextInput style={[styles.input, styles.flexInput]} placeholder="Max rent" placeholderTextColor="#74839b" value={filters.maxRent} onChangeText={(value) => setFilters({ ...filters, maxRent: value })} />
-            </View>
-            <Pressable style={styles.primaryButton} onPress={refreshListings}><Text style={styles.primaryButtonText}>Apply filters</Text></Pressable>
-
-            {loading ? <ActivityIndicator color="#63e6be" style={styles.loader} /> : null}
-            {publicData.listings.map((item) => (
-              <Pressable key={item.id} onPress={() => openListing(item)}>
-                <Card style={styles.listingCard}>
-                <View style={styles.cardHeaderRow}>
-                  <Pill text={item.isVerified ? 'Verified' : 'Pending'} active={Boolean(item.isVerified)} />
-                  <Text style={styles.price}>{currency(item.monthlyRent)}</Text>
-                </View>
-                <Text style={styles.listingTitle}>{item.title}</Text>
-                <Text style={styles.muted}>{item.locality?.city} · {item.locality?.localityName}</Text>
-                <Text style={styles.muted}>{item.description || 'No description available.'}</Text>
-                <Text style={styles.metaLine}>{item.roomType} · {item.furnishingType || 'unspecified'} · {item.tenantGenderPreference || 'any gender'}</Text>
-                </Card>
-              </Pressable>
-            ))}
-            {selectedListing ? (
-              <Card style={styles.detailCard}>
-                <Text style={styles.sectionTitle}>{selectedListing.title}</Text>
-                <Text style={styles.muted}>{selectedListing.description || 'No description available.'}</Text>
-                <Text style={styles.metaLine}>{currency(selectedListing.monthlyRent)} · {selectedListing.locality?.localityName}</Text>
-                <TextInput style={styles.input} placeholder="Write an inquiry" placeholderTextColor="#74839b" value={listingInquiryDraft} onChangeText={setListingInquiryDraft} />
-                <View style={styles.detailActions}>
-                  <Pressable style={styles.secondaryButton} onPress={saveSelectedListing}><Text style={styles.secondaryButtonText}>Save</Text></Pressable>
-                  <Pressable style={styles.secondaryButton} onPress={sendListingInquiry}><Text style={styles.secondaryButtonText}>Inquire</Text></Pressable>
-                </View>
-              </Card>
-            ) : null}
-          </Card>
-        )}
-
-        {tab === 'saved' && (
-          <Card>
-            <Text style={styles.sectionTitle}>Saved searches</Text>
-            <TextInput style={styles.input} placeholder="Search name" placeholderTextColor="#74839b" value={savedSearchForm.name} onChangeText={(value) => setSavedSearchForm({ ...savedSearchForm, name: value })} />
-            <TextInput style={styles.input} placeholder="City" placeholderTextColor="#74839b" value={savedSearchForm.city} onChangeText={(value) => setSavedSearchForm({ ...savedSearchForm, city: value })} />
-            <TextInput style={styles.input} placeholder="Search term" placeholderTextColor="#74839b" value={savedSearchForm.search} onChangeText={(value) => setSavedSearchForm({ ...savedSearchForm, search: value })} />
-            <View style={styles.rowInputs}>
-              <TextInput style={[styles.input, styles.flexInput]} placeholder="Min budget" placeholderTextColor="#74839b" value={savedSearchForm.minBudget} onChangeText={(value) => setSavedSearchForm({ ...savedSearchForm, minBudget: value })} />
-              <TextInput style={[styles.input, styles.flexInput]} placeholder="Max budget" placeholderTextColor="#74839b" value={savedSearchForm.maxBudget} onChangeText={(value) => setSavedSearchForm({ ...savedSearchForm, maxBudget: value })} />
-            </View>
-            <Pressable style={styles.primaryButton} onPress={saveSearch}><Text style={styles.primaryButtonText}>Save search</Text></Pressable>
-            {connectedData.savedSearches.map((search) => (
-              <View key={search.id} style={styles.alertCard}>
-                <Text style={styles.alertTitle}>{search.name}</Text>
-                <Text style={styles.muted}>{search.filters.city || 'Any city'} · {search.filters.roomType || 'Any room'}</Text>
-              </View>
-            ))}
-          </Card>
-        )}
-
-        {tab === 'chat' && (
-          <Card>
-            <Text style={styles.sectionTitle}>Chat</Text>
-            {connectedData.conversations.map((conversation) => (
-              <Pressable key={conversation.id} style={styles.alertCard} onPress={() => selectConversation(conversation)}>
-                <Text style={styles.alertTitle}>{conversation.participant_full_name || conversation.participant?.fullName}</Text>
-                <Text style={styles.muted}>{conversation.last_message_body || conversation.lastMessage?.body || 'No messages yet.'}</Text>
-              </Pressable>
-            ))}
-            {connectedData.selectedConversation ? (
-              <View style={styles.chatBox}>
-                {(connectedData.messages || []).map((message) => (
-                  <View key={message.id} style={[styles.messageBubble, message.sender?.userId === session?.user?.id && styles.messageBubbleMine]}>
-                    <Text style={styles.messageText}>{message.body}</Text>
-                    <Text style={styles.messageMeta}>{message.sender?.fullName} · {message.sentAt}</Text>
-                  </View>
-                ))}
-                <TextInput style={styles.input} placeholder="Write a reply" placeholderTextColor="#74839b" value={messageDraft} onChangeText={setMessageDraft} />
-                <Pressable style={styles.primaryButton} onPress={sendMessage}><Text style={styles.primaryButtonText}>Send</Text></Pressable>
-              </View>
-            ) : null}
-          </Card>
-        )}
-
-        {tab === 'alerts' && (
-          <Card>
-            <Text style={styles.sectionTitle}>Live updates</Text>
-            {session?.role === 'student' ? (
-              <>
-                <Text style={styles.muted}>Unread alerts: {(roleData.data?.alerts?.items || []).filter((alert) => !alert.isRead).length}</Text>
-                {(roleData.data?.alerts?.items || []).map((alert) => (
-                  <View key={alert.id} style={styles.alertCard}>
-                    <Text style={styles.alertTitle}>{alert.title || 'New alert'}</Text>
-                    <Text style={styles.muted}>{alert.message}</Text>
-                  </View>
-                ))}
-                <Text style={styles.muted}>Roommate matches: {roleData.data?.rooms?.items?.length || 0}</Text>
-              </>
-            ) : (
-              <Text style={styles.muted}>Login as a student to see instant saved-search alerts and matchmaking.</Text>
-            )}
-          </Card>
-        )}
-
-        {tab === 'membership' && (
-          <Card>
-            <Text style={styles.sectionTitle}>Landlord memberships</Text>
-            {publicData.plans.map((plan) => (
-              <View key={plan.id} style={styles.planCard}>
-                <Text style={styles.planName}>{plan.name}</Text>
-                <Text style={styles.planPrice}>{currency(plan.monthlyPrice)}/mo</Text>
-                <Text style={styles.muted}>{plan.listingBoostQuota} boosted listings · {plan.leadQuota} leads</Text>
-              </View>
-            ))}
-            {session?.role === 'landlord' ? (
-              <Text style={styles.muted}>Active subscription: {roleData.data?.membership?.membership?.plan?.name || 'none'}</Text>
-            ) : null}
-          </Card>
-        )}
-
-        {tab === 'profile' && (
-          <Card>
-            <Text style={styles.sectionTitle}>Profile & security</Text>
-            {session ? (
-              <>
-                <Text style={styles.profileText}>{session.user.fullName}</Text>
-                <Text style={styles.muted}>{session.user.role}</Text>
-                <Text style={styles.muted}>JWT session synced with backend auth</Text>
-                <TextInput style={styles.input} placeholder="Full name" placeholderTextColor="#74839b" value={profileForm.fullName} onChangeText={(value) => setProfileForm({ ...profileForm, fullName: value })} />
-                <TextInput style={styles.input} placeholder="Email" placeholderTextColor="#74839b" value={profileForm.email} onChangeText={(value) => setProfileForm({ ...profileForm, email: value })} />
-                {session.role === 'student' ? (
-                  <>
-                    <TextInput style={styles.input} placeholder="University" placeholderTextColor="#74839b" value={profileForm.studentProfile.universityName} onChangeText={(value) => setProfileForm({ ...profileForm, studentProfile: { ...profileForm.studentProfile, universityName: value } })} />
-                    <TextInput style={styles.input} placeholder="Course" placeholderTextColor="#74839b" value={profileForm.studentProfile.courseName} onChangeText={(value) => setProfileForm({ ...profileForm, studentProfile: { ...profileForm.studentProfile, courseName: value } })} />
-                    <TextInput style={styles.input} placeholder="Roommate bio" placeholderTextColor="#74839b" value={profileForm.roommateProfile.bio} onChangeText={(value) => setProfileForm({ ...profileForm, roommateProfile: { ...profileForm.roommateProfile, bio: value } })} />
-                    <Pressable style={styles.secondaryButton} onPress={updateRoommateProfile}><Text style={styles.secondaryButtonText}>Update roommate profile</Text></Pressable>
-                  </>
-                ) : null}
-                {session.role === 'landlord' ? (
-                  <TextInput style={styles.input} placeholder="Business name" placeholderTextColor="#74839b" value={profileForm.landlordProfile.businessName} onChangeText={(value) => setProfileForm({ ...profileForm, landlordProfile: { businessName: value } })} />
-                ) : null}
-                <Pressable style={styles.primaryButton} onPress={updateProfile}><Text style={styles.primaryButtonText}>Update profile</Text></Pressable>
-                <Pressable style={styles.logoutButton} onPress={logout}><Text style={styles.logoutButtonText}>Logout</Text></Pressable>
-              </>
-            ) : (
-              <Text style={styles.muted}>Sign in to sync chat, alerts, membership, and dashboards across devices.</Text>
-            )}
-          </Card>
-        )}
-
-        {session?.role === 'admin' ? (
-          <Card>
-            <Text style={styles.sectionTitle}>Ops view</Text>
-            <Text style={styles.muted}>Queue lag checks: {roleData.data?.queues?.items?.length || 0}</Text>
-            <Text style={styles.muted}>Worker heartbeats: {roleData.data?.workers?.items?.length || 0}</Text>
-          </Card>
-        ) : null}
-      </ScrollView>
+      <StatusBar barStyle="dark-content" />
+      <View style={styles.appBody}>{renderActiveTab()}</View>
+      <View style={styles.bottomNav}>
+        {tabs.map((item) => (
+          <Pressable key={item.key} style={styles.tabBtn} onPress={() => setTab(item.key)}>
+            <MaterialCommunityIcons name={item.icon} size={20} color={tab === item.key ? '#3f37c9' : '#8089a6'} />
+            <Text style={[styles.tabText, tab === item.key && styles.tabTextActive]}>{item.label}</Text>
+          </Pressable>
+        ))}
+      </View>
     </SafeAreaView>
   );
 }
@@ -626,261 +761,352 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#08111f'
+    backgroundColor: '#f4f6ff'
   },
-  container: {
-    padding: 16,
-    gap: 14
+  appBody: {
+    flex: 1
   },
-  backgroundOrbA: {
-    position: 'absolute',
-    top: -40,
-    right: -30,
-    width: 180,
-    height: 180,
-    borderRadius: 999,
-    backgroundColor: 'rgba(99, 230, 190, 0.12)'
-  },
-  backgroundOrbB: {
-    position: 'absolute',
-    bottom: 100,
-    left: -50,
-    width: 220,
-    height: 220,
-    borderRadius: 999,
-    backgroundColor: 'rgba(124, 156, 255, 0.12)'
-  },
-  card: {
-    backgroundColor: 'rgba(16, 34, 56, 0.96)',
-    borderColor: 'rgba(156, 190, 255, 0.16)',
-    borderWidth: 1,
-    borderRadius: 22,
+  screen: {
     padding: 16,
     gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 24,
-    elevation: 6
+    paddingBottom: 100
   },
-  heroCard: {
-    paddingVertical: 20
-  },
-  brand: {
-    color: '#63e6be',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    fontSize: 12,
-    fontWeight: '800'
-  },
-  heroTitle: {
-    color: '#f4f7fb',
+  title: {
     fontSize: 28,
-    lineHeight: 32,
+    fontWeight: '800',
+    color: '#1d2340'
+  },
+  subtitle: {
+    color: '#546078',
+    fontSize: 14,
+    marginBottom: 8
+  },
+  card: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#d9dff0',
+    padding: 14,
+    gap: 10
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1f2852'
+  },
+  input: {
+    minHeight: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#d0d9f0',
+    backgroundColor: '#fdfdff',
+    paddingHorizontal: 12,
+    color: '#1f2852'
+  },
+  searchInput: {
+    minHeight: 52,
+    fontSize: 16,
+    backgroundColor: '#ffffff'
+  },
+  authSwitchRow: {
+    backgroundColor: '#ecefff',
+    borderRadius: 12,
+    padding: 4,
+    flexDirection: 'row'
+  },
+  authSwitch: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  authSwitchActive: {
+    backgroundColor: '#ffffff'
+  },
+  authSwitchText: {
+    color: '#6a7391',
+    fontWeight: '700'
+  },
+  authSwitchTextActive: {
+    color: '#2d2f77'
+  },
+  verificationBanner: {
+    borderWidth: 1,
+    borderColor: '#f0d39c',
+    backgroundColor: '#fff7e8',
+    color: '#7c4d09',
+    borderRadius: 10,
+    padding: 10,
+    fontWeight: '600'
+  },
+  roleRow: {
+    flexDirection: 'row',
+    gap: 8
+  },
+  roleChip: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#d0d9f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff'
+  },
+  roleChipActive: {
+    backgroundColor: '#3f37c9',
+    borderColor: '#3f37c9'
+  },
+  roleChipText: {
+    color: '#3d4a67',
+    fontWeight: '700'
+  },
+  roleChipTextActive: {
+    color: '#ffffff'
+  },
+  primaryBtn: {
+    minHeight: 46,
+    borderRadius: 12,
+    backgroundColor: '#3f37c9',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  primaryBtnText: {
+    color: '#ffffff',
+    fontWeight: '800',
+    fontSize: 15
+  },
+  secondaryBtn: {
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#d0d9f0',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12
+  },
+  secondaryBtnText: {
+    color: '#344163',
+    fontWeight: '700'
+  },
+  loader: {
+    marginTop: 20
+  },
+  offerBanner: {
+    borderRadius: 18,
+    padding: 16,
+    backgroundColor: '#2f2a9a',
+    borderWidth: 1,
+    borderColor: '#4b45c9',
+    gap: 8
+  },
+  offerTitle: {
+    color: '#ffffff',
+    fontSize: 20,
     fontWeight: '800'
   },
-  heroCopy: {
-    color: '#a8b4c7',
+  offerSub: {
+    color: '#d9dbff'
+  },
+  offerBtn: {
+    alignSelf: 'flex-start',
+    minHeight: 38,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: '#f6a019',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  offerBtnText: {
+    color: '#251c10',
+    fontWeight: '800'
+  },
+  listingCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#d9dff0',
+    overflow: 'hidden'
+  },
+  listingImage: {
+    width: '100%',
+    height: 190,
+    resizeMode: 'cover'
+  },
+  listingBody: {
+    padding: 12,
+    gap: 4
+  },
+  listingTitle: {
+    color: '#1f2852',
+    fontSize: 16,
+    fontWeight: '700'
+  },
+  listingMeta: {
+    color: '#5e6b84'
+  },
+  listingRent: {
+    color: '#1b1f42',
+    fontWeight: '800'
+  },
+  listing3d: {
+    color: '#3f37c9',
+    fontWeight: '700',
+    fontSize: 12
+  },
+  backBtn: {
+    alignSelf: 'flex-start'
+  },
+  backBtnText: {
+    color: '#3f37c9',
+    fontWeight: '700'
+  },
+  detailHeroCard: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#d9dff0'
+  },
+  detailHeroImage: {
+    width: '100%',
+    height: 230,
+    resizeMode: 'cover'
+  },
+  detailTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#1d2340'
+  },
+  detailAddress: {
+    color: '#5d6a85',
+    marginTop: -4
+  },
+  detailStatsRow: {
+    flexDirection: 'row',
+    gap: 8
+  },
+  detailStat: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#d8dff0',
+    backgroundColor: '#ffffff',
+    padding: 10,
+    gap: 2
+  },
+  detailStatLabel: {
+    color: '#65728b',
+    fontSize: 12
+  },
+  detailStatValue: {
+    color: '#1e2543',
+    fontWeight: '800'
+  },
+  detailOwnerName: {
+    color: '#1f2852',
+    fontSize: 18,
+    fontWeight: '700'
+  },
+  detailOwnerLine: {
+    color: '#596782'
+  },
+  detailMessageInput: {
+    minHeight: 90,
+    textAlignVertical: 'top',
+    paddingTop: 12
+  },
+  detailParagraph: {
+    color: '#51617d',
     lineHeight: 22
   },
-  pillRow: {
+  featureGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8
   },
-  pill: {
-    color: '#a8b4c7',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    overflow: 'hidden'
-  },
-  pillActive: {
-    color: '#08111f',
-    backgroundColor: '#63e6be'
-  },
-  healthRow: {
-    flexDirection: 'row',
-    gap: 10
-  },
-  healthBox: {
-    flex: 1,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    padding: 12,
+  featureCard: {
+    width: '48%',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe1f3',
+    backgroundColor: '#ffffff',
+    padding: 10,
     gap: 4
   },
-  healthValue: {
-    color: '#f4f7fb',
-    fontSize: 18,
-    fontWeight: '800'
+  featureTitle: {
+    color: '#1d2340',
+    fontWeight: '700'
   },
-  healthLabel: {
-    color: '#a8b4c7',
+  featureBody: {
+    color: '#5a6882',
     fontSize: 12
   },
-  sectionTitle: {
-    color: '#f4f7fb',
-    fontSize: 18,
-    fontWeight: '800'
+  emptyText: {
+    color: '#5a6882',
+    fontWeight: '600'
   },
-  input: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: '#f4f7fb',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)'
-  },
-  primaryButton: {
-    backgroundColor: '#63e6be',
-    paddingVertical: 14,
-    borderRadius: 999,
-    alignItems: 'center'
-  },
-  primaryButtonText: {
-    color: '#08111f',
-    fontWeight: '800'
-  },
-  secondaryButton: {
-    backgroundColor: 'rgba(124,156,255,0.2)',
-    paddingVertical: 14,
-    borderRadius: 999,
-    alignItems: 'center'
-  },
-  secondaryButtonText: {
-    color: '#f4f7fb',
-    fontWeight: '800'
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    marginVertical: 6
-  },
-  tabRow: {
+  rowGap: {
     flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap'
+  },
+  halfInput: {
+    flex: 1,
+    minWidth: 130
+  },
+  localityWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8
   },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
+  localityChip: {
     borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#d0d9f0',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    minHeight: 34,
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)'
+    justifyContent: 'center'
   },
-  tabActive: {
-    backgroundColor: '#7c9cff'
+  localityChipActive: {
+    backgroundColor: '#ecebff',
+    borderColor: '#3f37c9'
   },
-  tabText: {
-    color: '#a8b4c7',
-    fontWeight: '700'
-  },
-  tabTextActive: {
-    color: '#08111f'
-  },
-  rowInputs: {
-    flexDirection: 'row',
-    gap: 10
-  },
-  flexInput: {
-    flex: 1
-  },
-  loader: {
-    marginVertical: 16
-  },
-  listingCard: {
-    marginTop: 12
-  },
-  detailCard: {
-    marginTop: 12,
-    gap: 10
-  },
-  detailActions: {
-    flexDirection: 'row',
-    gap: 10
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  price: {
-    color: '#63e6be',
-    fontWeight: '800'
-  },
-  listingTitle: {
-    color: '#f4f7fb',
-    fontSize: 16,
-    fontWeight: '800'
-  },
-  muted: {
-    color: '#a8b4c7'
-  },
-  metaLine: {
-    color: '#7c9cff'
-  },
-  alertCard: {
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    padding: 12,
-    gap: 4
-  },
-  chatBox: {
-    gap: 10,
-    marginTop: 8
-  },
-  messageBubble: {
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    padding: 12,
-    gap: 4
-  },
-  messageBubbleMine: {
-    backgroundColor: 'rgba(99, 230, 190, 0.12)'
-  },
-  messageText: {
-    color: '#f4f7fb',
-    fontWeight: '700'
-  },
-  messageMeta: {
-    color: '#a8b4c7',
+  localityChipText: {
+    color: '#3c4866',
+    fontWeight: '700',
     fontSize: 12
   },
-  alertTitle: {
-    color: '#f4f7fb',
-    fontWeight: '800'
+  localityChipTextActive: {
+    color: '#2b2599'
   },
-  planCard: {
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    padding: 14,
-    gap: 6,
-    marginTop: 10
+  logoutBtn: {
+    marginTop: 8
   },
-  planName: {
-    color: '#f4f7fb',
-    fontWeight: '800'
+  bottomNav: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#d9def0',
+    backgroundColor: '#ffffff',
+    paddingTop: 8,
+    paddingBottom: 14,
+    paddingHorizontal: 6
   },
-  planPrice: {
-    color: '#63e6be',
-    fontSize: 18,
-    fontWeight: '800'
+  tabBtn: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2
   },
-  profileText: {
-    color: '#f4f7fb',
-    fontSize: 20,
-    fontWeight: '800'
+  tabText: {
+    fontSize: 10,
+    color: '#8089a6',
+    fontWeight: '700',
+    textAlign: 'center'
   },
-  logoutButton: {
-    marginTop: 10,
-    backgroundColor: 'rgba(255,123,123,0.16)',
-    paddingVertical: 12,
-    borderRadius: 999,
-    alignItems: 'center'
-  },
-  logoutButtonText: {
-    color: '#ffb0b0',
-    fontWeight: '800'
+  tabTextActive: {
+    color: '#3f37c9'
   }
 });

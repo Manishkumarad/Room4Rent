@@ -68,6 +68,10 @@ export function createRoomRentalClient({ baseUrl = resolveApiBaseUrl(), token = 
 			method: 'POST',
 			body: payload
 		}),
+		resendVerification: (identifier) => requestJson(baseUrl, '/auth/resend-verification', {
+			method: 'POST',
+			body: { identifier }
+		}),
 		fetchHealth: () => requestJson(baseUrl, '/health'),
 		fetchListings: (params = {}) => requestJson(baseUrl, `/listings${buildQuery(params)}`),
 		fetchStudentListings: (params = {}) => requestJson(baseUrl, `/students/listings/search${buildQuery(params)}`, { token }),
@@ -140,7 +144,19 @@ export function createRoomRentalClient({ baseUrl = resolveApiBaseUrl(), token = 
 			method: 'POST',
 			token
 		}),
+		fetchMyInquiries: (params = {}) => requestJson(baseUrl, `/engagement/inquiries/me${buildQuery(params)}`, { token }),
+		fetchReceivedInquiries: (params = {}) => requestJson(baseUrl, `/engagement/inquiries/received${buildQuery(params)}`, { token }),
 		createInquiry: (listingId, payload = {}) => requestJson(baseUrl, `/engagement/listings/${listingId}/inquiries`, {
+			method: 'POST',
+			token,
+			body: payload
+		}),
+		createListing: (payload) => requestJson(baseUrl, '/listings', {
+			method: 'POST',
+			token,
+			body: payload
+		}),
+		addListingImage: (listingId, payload) => requestJson(baseUrl, `/listings/${listingId}/images`, {
 			method: 'POST',
 			token,
 			body: payload
