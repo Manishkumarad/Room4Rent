@@ -1,0 +1,16 @@
+{
+  "name": "roomrental-frontend",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "web",
+    "mobile"
+  ],
+  "scripts": {
+    "web": "npm --workspace web run dev",
+    "web:build": "npm --workspace web run build",
+    "mobile": "npm --workspace mobile run start",
+    "mobile:build": "npm --workspace mobile run build",
+    "health-check": "node scripts/health-check.js"
+  }
+}

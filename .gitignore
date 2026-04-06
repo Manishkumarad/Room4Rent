@@ -1,0 +1,25 @@
+# Node dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+*.log
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+!.env.staging.example
+!.env.production.example
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Expo / React Native
+frontend/mobile/.expo/
+frontend/mobile/.expo-shared/

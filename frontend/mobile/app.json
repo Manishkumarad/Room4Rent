@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "RoomRental",
+    "slug": "roomrental-mobile",
+    "scheme": "roomrental",
+    "platforms": ["ios", "android", "web"],
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "splash": {
+      "backgroundColor": "#08111f"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "extra": {
+      "apiBaseUrl": "http://localhost:4100/api"
+    }
+  }
+}

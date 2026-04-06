@@ -1,0 +1,71 @@
+{
+  "family": "roomrental-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "${EXECUTION_ROLE_ARN}",
+  "taskRoleArn": "${TASK_ROLE_ARN}",
+  "containerDefinitions": [
+    {
+      "name": "roomrental-backend",
+      "image": "${IMAGE_URI}",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 4100,
+          "hostPort": 4100,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "${DATABASE_URL_SECRET_ARN}" },
+        { "name": "JWT_ACCESS_SECRET", "valueFrom": "${JWT_ACCESS_SECRET_ARN}" },
+        { "name": "JWT_REFRESH_SECRET", "valueFrom": "${JWT_REFRESH_SECRET_ARN}" },
+        { "name": "JWT_ACCESS_EXPIRES_IN", "valueFrom": "${JWT_ACCESS_EXPIRES_IN_ARN}" },
+        { "name": "JWT_REFRESH_EXPIRES_IN", "valueFrom": "${JWT_REFRESH_EXPIRES_IN_ARN}" },
+        { "name": "PHONE_OTP_EXPIRES_IN", "valueFrom": "${PHONE_OTP_EXPIRES_IN_ARN}" },
+        { "name": "EMAIL_ALERT_WEBHOOK_URL", "valueFrom": "${EMAIL_ALERT_WEBHOOK_URL_ARN}" },
+        { "name": "WHATSAPP_PROVIDER", "valueFrom": "${WHATSAPP_PROVIDER_ARN}" },
+        { "name": "WHATSAPP_ALERT_WEBHOOK_URL", "valueFrom": "${WHATSAPP_ALERT_WEBHOOK_URL_ARN}" },
+        { "name": "TWILIO_ACCOUNT_SID", "valueFrom": "${TWILIO_ACCOUNT_SID_ARN}" },
+        { "name": "TWILIO_AUTH_TOKEN", "valueFrom": "${TWILIO_AUTH_TOKEN_ARN}" },
+        { "name": "TWILIO_WHATSAPP_FROM", "valueFrom": "${TWILIO_WHATSAPP_FROM_ARN}" },
+        { "name": "META_WHATSAPP_ACCESS_TOKEN", "valueFrom": "${META_WHATSAPP_ACCESS_TOKEN_ARN}" },
+        { "name": "META_WHATSAPP_PHONE_NUMBER_ID", "valueFrom": "${META_WHATSAPP_PHONE_NUMBER_ID_ARN}" },
+        { "name": "META_WHATSAPP_API_VERSION", "valueFrom": "${META_WHATSAPP_API_VERSION_ARN}" },
+        { "name": "RAZORPAY_KEY_ID", "valueFrom": "${RAZORPAY_KEY_ID_ARN}" },
+        { "name": "RAZORPAY_KEY_SECRET", "valueFrom": "${RAZORPAY_KEY_SECRET_ARN}" },
+        { "name": "RAZORPAY_WEBHOOK_SECRET", "valueFrom": "${RAZORPAY_WEBHOOK_SECRET_ARN}" },
+        { "name": "WORKER_POLL_INTERVAL_MS", "valueFrom": "${WORKER_POLL_INTERVAL_MS_ARN}" },
+        { "name": "IMMERSIVE_JOB_BATCH_SIZE", "valueFrom": "${IMMERSIVE_JOB_BATCH_SIZE_ARN}" },
+        { "name": "PAYMENT_RECONCILIATION_BATCH_SIZE", "valueFrom": "${PAYMENT_RECONCILIATION_BATCH_SIZE_ARN}" },
+        { "name": "PAYMENT_RECONCILIATION_CAPTURE_AFTER_MINUTES", "valueFrom": "${PAYMENT_RECONCILIATION_CAPTURE_AFTER_MINUTES_ARN}" },
+        { "name": "WORKER_ALERT_WEBHOOK_URL", "valueFrom": "${WORKER_ALERT_WEBHOOK_URL_ARN}" },
+        { "name": "WORKER_QUEUE_LAG_ALERT_THRESHOLD_SECONDS", "valueFrom": "${WORKER_QUEUE_LAG_ALERT_THRESHOLD_SECONDS_ARN}" },
+        { "name": "WORKER_FAILED_JOBS_ALERT_THRESHOLD", "valueFrom": "${WORKER_FAILED_JOBS_ALERT_THRESHOLD_ARN}" },
+        { "name": "WORKER_ALERT_COOLDOWN_MINUTES", "valueFrom": "${WORKER_ALERT_COOLDOWN_MINUTES_ARN}" },
+        { "name": "WORKER_HEARTBEAT_STALE_AFTER_SECONDS", "valueFrom": "${WORKER_HEARTBEAT_STALE_AFTER_SECONDS_ARN}" },
+        { "name": "CORS_ORIGIN", "valueFrom": "${CORS_ORIGIN_ARN}" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/roomrental-backend",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "api"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4100/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      }
+    }
+  ]
+}

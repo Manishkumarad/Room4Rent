@@ -1,0 +1,141 @@
+{
+  "name": "Room",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Listing title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed description"
+    },
+    "rent": {
+      "type": "number",
+      "description": "Monthly rent in INR"
+    },
+    "deposit": {
+      "type": "number",
+      "description": "Security deposit in INR"
+    },
+    "room_type": {
+      "type": "string",
+      "enum": [
+        "single",
+        "shared",
+        "1bhk",
+        "2bhk",
+        "pg"
+      ],
+      "description": "Type of accommodation"
+    },
+    "furnishing": {
+      "type": "string",
+      "enum": [
+        "fully_furnished",
+        "semi_furnished",
+        "unfurnished"
+      ]
+    },
+    "city": {
+      "type": "string"
+    },
+    "locality": {
+      "type": "string"
+    },
+    "address": {
+      "type": "string"
+    },
+    "nearby_college": {
+      "type": "string"
+    },
+    "amenities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verification_docs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "is_verified": {
+      "type": "boolean",
+      "default": false
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "pending",
+        "rented"
+      ],
+      "default": "pending"
+    },
+    "gender_preference": {
+      "type": "string",
+      "enum": [
+        "male",
+        "female",
+        "any"
+      ]
+    },
+    "available_from": {
+      "type": "string",
+      "format": "date"
+    },
+    "landlord_name": {
+      "type": "string"
+    },
+    "landlord_email": {
+      "type": "string"
+    },
+    "landlord_phone": {
+      "type": "string"
+    },
+    "latitude": {
+      "type": "number"
+    },
+    "longitude": {
+      "type": "number"
+    },
+    "views_count": {
+      "type": "number",
+      "default": 0
+    },
+    "electricity_included": {
+      "type": "boolean",
+      "default": false
+    },
+    "wifi_included": {
+      "type": "boolean",
+      "default": false
+    },
+    "food_included": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "title",
+    "rent",
+    "room_type",
+    "city",
+    "locality"
+  ]
+}

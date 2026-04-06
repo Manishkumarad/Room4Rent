@@ -1,0 +1,16 @@
+version: '3.9'
+services:
+  api:
+    image: ghcr.io/<owner>/roomrental-backend:latest
+    env_file:
+      - ../backend/.env.production
+    ports:
+      - "4100:4100"
+    restart: unless-stopped
+
+  worker:
+    image: ghcr.io/<owner>/roomrental-backend:latest
+    env_file:
+      - ../backend/.env.production
+    command: ["node", "src/workers/index.js"]
+    restart: unless-stopped

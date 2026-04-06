@@ -1,0 +1,39 @@
+{
+  "name": "RoomApplication",
+  "type": "object",
+  "properties": {
+    "room_id": {
+      "type": "string"
+    },
+    "student_email": {
+      "type": "string"
+    },
+    "student_name": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "accepted",
+        "rejected"
+      ],
+      "default": "pending"
+    },
+    "landlord_email": {
+      "type": "string"
+    },
+    "move_in_date": {
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "required": [
+    "room_id",
+    "student_email",
+    "landlord_email"
+  ]
+}

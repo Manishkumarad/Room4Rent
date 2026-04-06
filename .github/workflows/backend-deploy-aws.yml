@@ -1,0 +1,143 @@
+name: Backend Deploy AWS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      strategy:
+        description: Deployment strategy
+        required: true
+        type: choice
+        options:
+          - blue-green
+          - canary
+      canary_percent:
+        description: Canary traffic percentage when strategy=canary
+        required: false
+        default: '10'
+      image_tag:
+        description: Image tag to deploy
+        required: false
+        default: latest
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      DEPLOY_ENVIRONMENT: ${{ github.event.inputs.environment }}
+      DEPLOY_STRATEGY: ${{ github.event.inputs.strategy }}
+      DEPLOY_CANARY_PERCENT: ${{ github.event.inputs.canary_percent }}
+      DEPLOY_IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      ECR_REPOSITORY: ${{ vars.AWS_ECR_REPOSITORY }}
+      ECS_CLUSTER: ${{ vars.AWS_ECS_CLUSTER }}
+      ECS_SERVICE: ${{ vars.AWS_ECS_SERVICE }}
+      ECS_TASK_DEFINITION: deployment/aws/ecs-task-definition.json
+      HEALTH_GATE_BASE_URL: ${{ vars.HEALTH_GATE_BASE_URL }}
+      HEALTH_GATE_AUTH_TOKEN: ${{ secrets.HEALTH_GATE_AUTH_TOKEN }}
+      ROLLBACK_WEBHOOK_URL: ${{ secrets.DEPLOY_ROLLBACK_WEBHOOK }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:${DEPLOY_IMAGE_TAG}"
+          echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
+          docker build -t "$IMAGE_URI" -f backend/Dockerfile backend
+          docker push "$IMAGE_URI"
+
+      - name: Resolve current task definition
+        id: current-taskdef
+        run: |
+          CURRENT_TASK_DEFINITION=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)
+          echo "current_task_definition=$CURRENT_TASK_DEFINITION" >> "$GITHUB_OUTPUT"
+
+      - name: Render task definition locally
+        id: render-taskdef
+        env:
+          TASK_DEFINITION_TEMPLATE: ${{ env.ECS_TASK_DEFINITION }}
+          TASK_DEFINITION_OUTPUT: deployment/aws/ecs-task-definition.rendered.json
+          EXECUTION_ROLE_ARN: ${{ vars.AWS_ECS_EXECUTION_ROLE_ARN }}
+          TASK_ROLE_ARN: ${{ vars.AWS_ECS_TASK_ROLE_ARN }}
+          DATABASE_URL_SECRET_ARN: ${{ secrets.AWS_DATABASE_URL_SECRET_ARN }}
+          JWT_ACCESS_SECRET_ARN: ${{ secrets.AWS_JWT_ACCESS_SECRET_ARN }}
+          JWT_REFRESH_SECRET_ARN: ${{ secrets.AWS_JWT_REFRESH_SECRET_ARN }}
+          JWT_ACCESS_EXPIRES_IN_ARN: ${{ secrets.AWS_JWT_ACCESS_EXPIRES_IN_ARN }}
+          JWT_REFRESH_EXPIRES_IN_ARN: ${{ secrets.AWS_JWT_REFRESH_EXPIRES_IN_ARN }}
+          PHONE_OTP_EXPIRES_IN_ARN: ${{ secrets.AWS_PHONE_OTP_EXPIRES_IN_ARN }}
+          EMAIL_ALERT_WEBHOOK_URL_ARN: ${{ secrets.AWS_EMAIL_ALERT_WEBHOOK_URL_ARN }}
+          WHATSAPP_PROVIDER_ARN: ${{ secrets.AWS_WHATSAPP_PROVIDER_ARN }}
+          WHATSAPP_ALERT_WEBHOOK_URL_ARN: ${{ secrets.AWS_WHATSAPP_ALERT_WEBHOOK_URL_ARN }}
+          TWILIO_ACCOUNT_SID_ARN: ${{ secrets.AWS_TWILIO_ACCOUNT_SID_ARN }}
+          TWILIO_AUTH_TOKEN_ARN: ${{ secrets.AWS_TWILIO_AUTH_TOKEN_ARN }}
+          TWILIO_WHATSAPP_FROM_ARN: ${{ secrets.AWS_TWILIO_WHATSAPP_FROM_ARN }}
+          META_WHATSAPP_ACCESS_TOKEN_ARN: ${{ secrets.AWS_META_WHATSAPP_ACCESS_TOKEN_ARN }}
+          META_WHATSAPP_PHONE_NUMBER_ID_ARN: ${{ secrets.AWS_META_WHATSAPP_PHONE_NUMBER_ID_ARN }}
+          META_WHATSAPP_API_VERSION_ARN: ${{ secrets.AWS_META_WHATSAPP_API_VERSION_ARN }}
+          RAZORPAY_KEY_ID_ARN: ${{ secrets.AWS_RAZORPAY_KEY_ID_ARN }}
+          RAZORPAY_KEY_SECRET_ARN: ${{ secrets.AWS_RAZORPAY_KEY_SECRET_ARN }}
+          RAZORPAY_WEBHOOK_SECRET_ARN: ${{ secrets.AWS_RAZORPAY_WEBHOOK_SECRET_ARN }}
+          WORKER_POLL_INTERVAL_MS_ARN: ${{ secrets.AWS_WORKER_POLL_INTERVAL_MS_ARN }}
+          IMMERSIVE_JOB_BATCH_SIZE_ARN: ${{ secrets.AWS_IMMERSIVE_JOB_BATCH_SIZE_ARN }}
+          PAYMENT_RECONCILIATION_BATCH_SIZE_ARN: ${{ secrets.AWS_PAYMENT_RECONCILIATION_BATCH_SIZE_ARN }}
+          PAYMENT_RECONCILIATION_CAPTURE_AFTER_MINUTES_ARN: ${{ secrets.AWS_PAYMENT_RECONCILIATION_CAPTURE_AFTER_MINUTES_ARN }}
+          WORKER_ALERT_WEBHOOK_URL_ARN: ${{ secrets.AWS_WORKER_ALERT_WEBHOOK_URL_ARN }}
+          WORKER_QUEUE_LAG_ALERT_THRESHOLD_SECONDS_ARN: ${{ secrets.AWS_WORKER_QUEUE_LAG_ALERT_THRESHOLD_SECONDS_ARN }}
+          WORKER_FAILED_JOBS_ALERT_THRESHOLD_ARN: ${{ secrets.AWS_WORKER_FAILED_JOBS_ALERT_THRESHOLD_ARN }}
+          WORKER_ALERT_COOLDOWN_MINUTES_ARN: ${{ secrets.AWS_WORKER_ALERT_COOLDOWN_MINUTES_ARN }}
+          WORKER_HEARTBEAT_STALE_AFTER_SECONDS_ARN: ${{ secrets.AWS_WORKER_HEARTBEAT_STALE_AFTER_SECONDS_ARN }}
+          CORS_ORIGIN_ARN: ${{ secrets.AWS_CORS_ORIGIN_ARN }}
+        run: node deployment/scripts/render-ecs-task-definition.js
+
+      - name: Deploy task definition
+        id: deploy-taskdef
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: deployment/aws/ecs-task-definition.rendered.json
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Post-deploy health gate
+        run: node deployment/scripts/health-gate.js
+
+      - name: Rollback on health failure
+        if: failure()
+        env:
+          AWS_ECS_CLUSTER: ${{ env.ECS_CLUSTER }}
+          AWS_ECS_SERVICE: ${{ env.ECS_SERVICE }}
+          PREVIOUS_TASK_DEFINITION_ARN: ${{ steps.current-taskdef.outputs.current_task_definition }}
+        run: |
+          node deployment/scripts/aws-rollback.js
+          aws ecs update-service --cluster "$AWS_ECS_CLUSTER" --service "$AWS_ECS_SERVICE" --task-definition "$PREVIOUS_TASK_DEFINITION_ARN" --force-new-deployment
+
+      - name: Rollout summary
+        run: |
+          echo "Deployed $DEPLOY_ENVIRONMENT using $DEPLOY_STRATEGY strategy to $ECS_CLUSTER/$ECS_SERVICE"

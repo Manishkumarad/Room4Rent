@@ -1,0 +1,105 @@
+name: Backend Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      strategy:
+        description: Deployment strategy
+        required: true
+        type: choice
+        options:
+          - blue-green
+          - canary
+      canary_percent:
+        description: Canary traffic percentage when strategy=canary
+        required: false
+        default: '10'
+  push:
+    tags:
+      - "backend-v*"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      DEPLOY_ENVIRONMENT: ${{ github.event.inputs.environment || 'production' }}
+      DEPLOY_STRATEGY: ${{ github.event.inputs.strategy || 'blue-green' }}
+      DEPLOY_CANARY_PERCENT: ${{ github.event.inputs.canary_percent || '10' }}
+      IMAGE_TAG: ${{ github.sha }}
+      ROLLBACK_WEBHOOK_URL: ${{ secrets.DEPLOY_ROLLBACK_WEBHOOK }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/roomrental-backend
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ github.sha }}
+            type=sha
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Trigger deployment webhook
+        env:
+          STAGING_WEBHOOK: ${{ secrets.DEPLOY_WEBHOOK_STAGING }}
+          PRODUCTION_WEBHOOK: ${{ secrets.DEPLOY_WEBHOOK_PRODUCTION }}
+        run: |
+          if [ "$DEPLOY_ENVIRONMENT" = "staging" ]; then
+            curl -X POST "$STAGING_WEBHOOK" \
+              -H 'Content-Type: application/json' \
+              -d "{\"strategy\":\"$DEPLOY_STRATEGY\",\"canaryPercent\":$DEPLOY_CANARY_PERCENT,\"imageTag\":\"$IMAGE_TAG\"}"
+          else
+            curl -X POST "$PRODUCTION_WEBHOOK" \
+              -H 'Content-Type: application/json' \
+              -d "{\"strategy\":\"$DEPLOY_STRATEGY\",\"canaryPercent\":$DEPLOY_CANARY_PERCENT,\"imageTag\":\"$IMAGE_TAG\"}"
+          fi
+
+      - name: Post-deploy health gate
+        env:
+          HEALTH_GATE_BASE_URL: ${{ vars.HEALTH_GATE_BASE_URL }}
+          HEALTH_GATE_AUTH_TOKEN: ${{ secrets.HEALTH_GATE_AUTH_TOKEN }}
+          HEALTH_GATE_PATHS: /api/health,/api/memberships/plans,/api/admin/ops/workers
+        run: node deployment/scripts/health-gate.js
+
+      - name: Rollback on health failure
+        if: failure()
+        env:
+          ROLLBACK_WEBHOOK_URL: ${{ secrets.DEPLOY_ROLLBACK_WEBHOOK }}
+          ROLLBACK_REASON: Health gate failed during ${{ env.DEPLOY_STRATEGY }} deployment
+          DEPLOY_ENVIRONMENT: ${{ env.DEPLOY_ENVIRONMENT }}
+          DEPLOY_IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: node deployment/scripts/post-deploy-rollback.js

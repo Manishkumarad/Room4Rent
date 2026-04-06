@@ -1,0 +1,163 @@
+{
+  "family": "roomrental-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::123456789012:role/ecsExecution",
+  "taskRoleArn": "arn:aws:iam::123456789012:role/ecsTask",
+  "containerDefinitions": [
+    {
+      "name": "roomrental-backend",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/roomrental-backend:sha-test",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 4100,
+          "hostPort": 4100,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/database-url"
+        },
+        {
+          "name": "JWT_ACCESS_SECRET",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/jwt-access"
+        },
+        {
+          "name": "JWT_REFRESH_SECRET",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/jwt-refresh"
+        },
+        {
+          "name": "JWT_ACCESS_EXPIRES_IN",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/jwt-access-exp"
+        },
+        {
+          "name": "JWT_REFRESH_EXPIRES_IN",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/jwt-refresh-exp"
+        },
+        {
+          "name": "PHONE_OTP_EXPIRES_IN",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/otp-exp"
+        },
+        {
+          "name": "EMAIL_ALERT_WEBHOOK_URL",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/email-webhook"
+        },
+        {
+          "name": "WHATSAPP_PROVIDER",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/whatsapp-provider"
+        },
+        {
+          "name": "WHATSAPP_ALERT_WEBHOOK_URL",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/whatsapp-webhook"
+        },
+        {
+          "name": "TWILIO_ACCOUNT_SID",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/twilio-sid"
+        },
+        {
+          "name": "TWILIO_AUTH_TOKEN",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/twilio-token"
+        },
+        {
+          "name": "TWILIO_WHATSAPP_FROM",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/twilio-from"
+        },
+        {
+          "name": "META_WHATSAPP_ACCESS_TOKEN",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/meta-access"
+        },
+        {
+          "name": "META_WHATSAPP_PHONE_NUMBER_ID",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/meta-phone-id"
+        },
+        {
+          "name": "META_WHATSAPP_API_VERSION",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/meta-version"
+        },
+        {
+          "name": "RAZORPAY_KEY_ID",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/razorpay-key-id"
+        },
+        {
+          "name": "RAZORPAY_KEY_SECRET",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/razorpay-key-secret"
+        },
+        {
+          "name": "RAZORPAY_WEBHOOK_SECRET",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/razorpay-webhook"
+        },
+        {
+          "name": "WORKER_POLL_INTERVAL_MS",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/worker-poll"
+        },
+        {
+          "name": "IMMERSIVE_JOB_BATCH_SIZE",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/immersive-batch"
+        },
+        {
+          "name": "PAYMENT_RECONCILIATION_BATCH_SIZE",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/payment-batch"
+        },
+        {
+          "name": "PAYMENT_RECONCILIATION_CAPTURE_AFTER_MINUTES",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/payment-capture"
+        },
+        {
+          "name": "WORKER_ALERT_WEBHOOK_URL",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/worker-alert-webhook"
+        },
+        {
+          "name": "WORKER_QUEUE_LAG_ALERT_THRESHOLD_SECONDS",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/worker-lag-threshold"
+        },
+        {
+          "name": "WORKER_FAILED_JOBS_ALERT_THRESHOLD",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/worker-failed-threshold"
+        },
+        {
+          "name": "WORKER_ALERT_COOLDOWN_MINUTES",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/worker-cooldown"
+        },
+        {
+          "name": "WORKER_HEARTBEAT_STALE_AFTER_SECONDS",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/worker-stale"
+        },
+        {
+          "name": "CORS_ORIGIN",
+          "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/roomrental/cors-origin"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/roomrental-backend",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "api"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:4100/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      }
+    }
+  ]
+}

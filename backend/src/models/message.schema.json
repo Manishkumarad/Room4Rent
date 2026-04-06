@@ -1,0 +1,31 @@
+{
+  "name": "Message",
+  "type": "object",
+  "properties": {
+    "sender_email": {
+      "type": "string"
+    },
+    "receiver_email": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string"
+    },
+    "room_id": {
+      "type": "string"
+    },
+    "conversation_id": {
+      "type": "string"
+    },
+    "is_read": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "sender_email",
+    "receiver_email",
+    "content",
+    "conversation_id"
+  ]
+}
